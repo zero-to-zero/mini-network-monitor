@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Monitoring Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <style>
+        :root {
+            --online-color: #198754;
+            --offline-color: #dc3545;
+            --unknown-color: #6c757d;
+        }
+        .device-card {
+            transition: all 0.3s ease;
+            border-left: 4px solid var(--unknown-color);
+        }
+        .device-card.online {
+            border-left-color: var(--online-color);
+        }
+        .device-card.offline {
+            border-left-color: var(--offline-color);
+        }
+        .status-badge {
+            font-size: 0.8rem;
+            padding: 0.35em 0.65em;
+        }
+        .device-action {
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+        .device-action:hover {
+            color: #0d6efd !important;
+        }
+        .stats-card {
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        #refreshAllBtn {
+            transition: transform 0.5s;
+        }
+        #refreshAllBtn.refreshing {
+            transform: rotate(360deg);
+        }
+        .last-seen {
+            font-size: 0.85rem;
+            color: #6c757d;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <div class="container-fluid py-4">
+        <div class="row mb-4">
+            <div class="col">
+                <h1 class="display-4 text-center">Network Monitoring Dashboard</h1>
+                <p class="text-center text-muted">Real-time monitoring of all devices on your network</p>
+            </div>
+        </div>
+        
+        <div class="row mb-4">
+            <div class="col-md-4 mb-3">
+                <div class="card stats-card bg-white">
+                    <div class="card-body text-center">
+                        <h5 class="card-title"><i class="bi bi-pc-display text-primary"></i> Total Devices</h5>
+                        <h2 class="card-text" id="totalDevices">0</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4 mb-3">
+                <div class="card stats-card bg-white">
+                    <div class="card-body text-center">
+                        <h5 class="card-title"><i class="bi bi-check-circle text-success"></i> Online Devices</h5>
+                        <h2 class="card-text" id="onlineDevices">0</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4 mb-3">
+                <div class="card stats-card bg-white">
+                    <div class="card-body text-center">
+                        <h5 class="card-title"><i class="bi bi-x-circle text-danger"></i> Offline Devices</h5>
+                        <h2 class="card-text" id="offlineDevices">0</h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row mb-4">
+            <div class="col">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h3>Network Devices</h3>
+                    <button id="refreshAllBtn" class="btn btn-outline-primary">
+                        <i class="bi bi-arrow-clockwise"></i> Refresh All
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row" id="devicesContainer">
+        </div>
+    </div>
+
+    <script>
+        let currentDevices = {};
+        
+        function formatDate(dateString) {
+            if (!dateString || dateString === "Unknown") return "Unknown";
+            const date = new Date(dateString);
+            return date.toLocaleString();
+        }
+        
+        function timeSince(dateString) {
+            if (!dateString || dateString === "Unknown") return "Unknown";
+            const date = new Date(dateString);
+            const now = new Date();
+            const seconds = Math.floor((now - date) / 1000);
+            if (seconds < 60) return "just now";
+            const intervals = {
+                year: 31536000,
+                month: 2592000,
+                week: 604800,
+                day: 86400,
+                hour: 3600,
+                minute: 60
+            };
+            for (const [unit, secondsInUnit] of Object.entries(intervals)) {
+                const interval = Math.floor(seconds / secondsInUnit);
+                if (interval >= 1) {
+                    return `${interval} ${unit}${interval === 1 ? '' : 's'} ago`;
+                }
+            }
+            return "just now";
+        }
+        
+        function fetchDevices() {
+            fetch("/devices")
+                .then(res => res.json())
+                .then(data => {
+                    currentDevices = data;
+                    updateDevicesDisplay(data);
+                })
+                .catch(err => console.error("Error fetching devices:", err));
+        }
+        
+        function updateDevicesDisplay(devices) {
+            const container = document.getElementById("devicesContainer");
+            container.innerHTML = "";
+            
+            let onlineCount = 0;
+            let offlineCount = 0;
+            
+            const devicesArray = Object.entries(devices).map(([ip, info]) => ({
+                ip,
+                ...info
+            })).sort((a, b) => {
+                if (a.status === "online" && b.status !== "online") return -1;
+                if (a.status !== "online" && b.status === "online") return 1;
+                return a.name.localeCompare(b.name);
+            });
+            
+            devicesArray.forEach(device => {
+                if (device.status === "online") onlineCount++;
+                else offlineCount++;
+                
+                const card = document.createElement("div");
+                card.className = `col-md-4 col-lg-3 mb-3`;
+                card.innerHTML = `
+                    <div class="card device-card h-100 ${device.status}">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                <h5 class="card-title text-truncate" title="${device.name}">${device.name}</h5>
+                                <span class="status-badge badge bg-${device.status === 'online' ? 'success' : 'danger'}">
+                                    ${device.status === 'online' ? 'Online' : 'Offline'}
+                                </span>
+                            </div>
+                            <p class="card-text mb-1"><strong>IP:</strong> ${device.ip}</p>
+                            <p class="card-text mb-1"><strong>MAC:</strong> ${device.mac}</p>
+                            <p class="card-text mb-1 last-seen">
+                                <strong>Last seen:</strong> ${timeSince(device.last_seen)}
+                            </p>
+                            <p class="card-text mb-2 last-seen">
+                                <strong>First seen:</strong> ${formatDate(device.first_seen)}
+                            </p>
+                        </div>
+                        <div class="card-footer bg-transparent d-flex justify-content-between">
+                            <span class="device-action text-primary" onclick="refreshDevice('${device.ip}')" title="Refresh device">
+                                <i class="bi bi-arrow-repeat"></i> Refresh
+                            </span>
+                            <span class="device-action text-info" onclick="showDetails('${device.ip}')" title="View details">
+                                <i class="bi bi-info-circle"></i> Details
+                            </span>
+                        </div>
+                    </div>
+                `;
+                
+                container.appendChild(card);
+            });
+            
+            document.getElementById("totalDevices").textContent = devicesArray.length;
+            document.getElementById("onlineDevices").textContent = onlineCount;
+            document.getElementById("offlineDevices").textContent = offlineCount;
+        }
+        
+        function refreshDevice(ip) {
+            fetch(`/device/${ip}/refresh`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        showAlert(`Device ${ip} refreshed successfully`, "success");
+                        fetchDevices();
+                    } else {
+                        showAlert(data.message, "danger");
+                    }
+                })
+                .catch(err => {
+                    console.error("Error refreshing device:", err);
+                    showAlert("Error refreshing device", "danger");
+                });
+        }
+        
+        function showDetails(ip) {
+            const device = currentDevices[ip];
+            alert(`Device Details:\n\nName: ${device.name}\nIP: ${ip}\nMAC: ${device.mac}\nStatus: ${device.status}\nLast Seen: ${formatDate(device.last_seen)}\nFirst Seen: ${formatDate(device.first_seen)}`);
+        }
+        
+        function showAlert(message, type) {
+            const alertDiv = document.createElement("div");
+            alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+            alertDiv.style.top = "20px";
+            alertDiv.style.right = "20px";
+            alertDiv.style.zIndex = "1050";
+            alertDiv.style.minWidth = "300px";
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            document.body.appendChild(alertDiv);
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.classList.remove("show");
+                    setTimeout(() => alertDiv.remove(), 150);
+                }
+            }, 5000);
+        }
+        
+        function refreshAllDevices() {
+            const btn = document.getElementById("refreshAllBtn");
+            btn.classList.add("refreshing");
+            btn.disabled = true;
+            
+            const devices = Object.keys(currentDevices);
+            let completed = 0;
+            
+            if (devices.length === 0) {
+                fetchDevices();
+                setTimeout(() => {
+                    btn.classList.remove("refreshing");
+                    btn.disabled = false;
+                }, 1000);
+                return;
+            }
+            
+            devices.forEach((ip, index) => {
+                setTimeout(() => {
+                    fetch(`/device/${ip}/refresh`)
+                        .then(res => res.json())
+                        .then(data => {
+                            completed++;
+                            if (completed === devices.length) {
+                                fetchDevices();
+                                setTimeout(() => {
+                                    btn.classList.remove("refreshing");
+                                    btn.disabled = false;
+                                    showAlert("All devices refreshed", "success");
+                                }, 500);
+                            }
+                        })
+                        .catch(err => {
+                            completed++;
+                            console.error("Error refreshing device:", err);
+                            if (completed === devices.length) {
+                                setTimeout(() => {
+                                    btn.classList.remove("refreshing");
+                                    btn.disabled = false;
+                                }, 500);
+                            }
+                        });
+                }, index * 200);
+            });
+        }
+        
+        document.addEventListener("DOMContentLoaded", function() {
+            fetchDevices();
+            setInterval(fetchDevices, 5000);
+            document.getElementById("refreshAllBtn").addEventListener("click", refreshAllDevices);
+        });
+    </script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
