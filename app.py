@@ -108,13 +108,10 @@ def mdns_scan(devices):
                     devices[ip] = {"mac": "<unknown>", "name": info.server.rstrip('.'), "status": "online"}
             except Exception:
                 pass
-
         def remove_service(self, zc, type, name):
             pass
-
         def update_service(self, zc, type, name):
             pass
-
     try:
         zc = Zeroconf()
         services = ["_http._tcp.local.", "_ipp._tcp.local.", "_ssh._tcp.local.", "_workstation._tcp.local."]
@@ -124,7 +121,6 @@ def mdns_scan(devices):
         zc.close()
     except Exception:
         pass
-        
     return devices
 
 def scan_network():
@@ -133,7 +129,6 @@ def scan_network():
     devices = ping_sweep(devices, net)
     devices = reverse_dns(devices)
     devices = mdns_scan(devices)
-    
     current_time = datetime.now().isoformat()
     for ip, info in devices.items():
         if ip not in device_history:
@@ -143,7 +138,6 @@ def scan_network():
                 "first_seen": current_time
             }
         last_seen[ip] = current_time
-    
     return devices
 
 def background_scan():
@@ -158,7 +152,6 @@ def background_scan():
                     if ip not in live_devices or live_devices[ip].get("status") == "online":
                         devices[ip] = device_history[ip].copy()
                         devices[ip]["status"] = "offline"
-            
             live_devices = devices
             save_history()
         except Exception:
@@ -179,7 +172,6 @@ def get_devices():
         device_data["last_seen"] = last_seen.get(ip, "Unknown")
         device_data["first_seen"] = device_history.get(ip, {}).get("first_seen", "Unknown")
         devices_with_times[ip] = device_data
-    
     return jsonify(devices_with_times)
 
 @app.route("/device/<ip>/refresh")
@@ -195,18 +187,15 @@ def refresh_device(ip):
                     mac = "<unknown>"
             except Exception:
                 mac = "<unknown>"
-            
             try:
                 name = socket.gethostbyaddr(ip)[0]
             except Exception:
                 name = device_history.get(ip, {}).get("name", "<unknown>")
-            
             live_devices[ip] = {
                 "mac": mac,
                 "name": name,
                 "status": "online"
             }
-            
             if ip not in device_history:
                 device_history[ip] = {
                     "name": name,
@@ -214,7 +203,6 @@ def refresh_device(ip):
                     "first_seen": current_time
                 }
             last_seen[ip] = current_time
-            
             save_history()
             return jsonify({"success": True, "message": f"Device {ip} is online"})
         else:
