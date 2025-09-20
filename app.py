@@ -27,7 +27,8 @@ def load_history():
                 device_history = data.get('device_history', {})
                 last_seen = data.get('last_seen', {})
     except Exception:
-        pass
+        device_history = {}
+        last_seen = {}
 
 def save_history():
     try:
@@ -41,14 +42,15 @@ def save_history():
 
 load_history()
 
-def my_24():
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+def get_network():
     try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
         ip = s.getsockname()[0]
-    finally:
         s.close()
-    return str(ipaddress.ip_network(ip + "/24", strict=False))
+        return str(ipaddress.ip_network(ip + "/24", strict=False))
+    except Exception:
+        return "192.168.1.0/24"
 
 def ping(ip, timeout=500):
     system = platform.system()
@@ -59,48 +61,53 @@ def ping(ip, timeout=500):
     return subprocess.call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0
 
 def arp_scan(network):
-    net = ipaddress.ip_network(network, strict=False)
-    ether = Ether(dst="ff:ff:ff:ff:ff:ff")
-    arp = ARP(pdst=str(net))
-    packet = ether / arp
-    result = srp(packet, timeout=2, verbose=False)[0]
-    devices = {}
-    for sent, received in result:
-        devices[received.psrc] = {"mac": received.hwsrc, "name": "<unknown>", "status": "online"}
-    return devices
+    try:
+        net = ipaddress.ip_network(network, strict=False)
+        ether = Ether(dst="ff:ff:ff:ff:ff:ff")
+        arp = ARP(pdst=str(net))
+        packet = ether / arp
+        result = srp(packet, timeout=2, verbose=False)[0]
+        devices = {}
+        for sent, received in result:
+            devices[received.psrc] = {"mac": received.hwsrc, "name": "<unknown>", "status": "online"}
+        return devices
+    except Exception:
+        return {}
 
 def reverse_dns(devices):
     for ip in devices:
         try:
             devices[ip]["name"] = socket.gethostbyaddr(ip)[0]
         except Exception:
-            try:
-                if ip in device_history:
-                    devices[ip]["name"] = device_history[ip].get("name", "<unknown>")
-                else:
-                    devices[ip]["name"] = "<unknown>"
-            except:
+            if ip in device_history:
+                devices[ip]["name"] = device_history[ip].get("name", "<unknown>")
+            else:
                 devices[ip]["name"] = "<unknown>"
     return devices
 
 def ping_sweep(devices, network):
-    net = ipaddress.ip_network(network, strict=False)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=128) as ex:
-        futures = {ex.submit(ping, str(ip)): str(ip) for ip in net.hosts()}
-        for f in concurrent.futures.as_completed(futures):
-            ip = futures[f]
-            if f.result() and ip not in devices:
-                devices[ip] = {"mac": "<unknown>", "name": "<unknown>", "status": "online"}
-    return devices
+    try:
+        net = ipaddress.ip_network(network, strict=False)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=128) as ex:
+            futures = {ex.submit(ping, str(ip)): str(ip) for ip in net.hosts()}
+            for f in concurrent.futures.as_completed(futures):
+                ip = futures[f]
+                if f.result() and ip not in devices:
+                    devices[ip] = {"mac": "<unknown>", "name": "<unknown>", "status": "online"}
+        return devices
+    except Exception:
+        return devices
 
 def mdns_scan(devices):
     class MyListener(ServiceListener):
         def add_service(self, zc, type, name):
-            info = zc.get_service_info(type, name)
-            if info and info.server:
-                host = info.server.rstrip(".")
-                ip = socket.gethostbyname(host)
-                devices[ip] = {"mac": "<unknown>", "name": host, "status": "online"}
+            try:
+                info = zc.get_service_info(type, name)
+                if info and info.addresses:
+                    ip = socket.inet_ntoa(info.addresses[0])
+                    devices[ip] = {"mac": "<unknown>", "name": info.server.rstrip('.'), "status": "online"}
+            except Exception:
+                pass
 
         def remove_service(self, zc, type, name):
             pass
@@ -108,18 +115,20 @@ def mdns_scan(devices):
         def update_service(self, zc, type, name):
             pass
 
-    zc = Zeroconf()
     try:
+        zc = Zeroconf()
         services = ["_http._tcp.local.", "_ipp._tcp.local.", "_ssh._tcp.local.", "_workstation._tcp.local."]
         for s in services:
             ServiceBrowser(zc, s, MyListener())
         time.sleep(3)
-    finally:
         zc.close()
+    except Exception:
+        pass
+        
     return devices
 
 def scan_network():
-    net = my_24()
+    net = get_network()
     devices = arp_scan(net)
     devices = ping_sweep(devices, net)
     devices = reverse_dns(devices)
@@ -184,12 +193,12 @@ def refresh_device(ip):
                     mac = ans[0][1].hwsrc
                 else:
                     mac = "<unknown>"
-            except:
+            except Exception:
                 mac = "<unknown>"
             
             try:
                 name = socket.gethostbyaddr(ip)[0]
-            except:
+            except Exception:
                 name = device_history.get(ip, {}).get("name", "<unknown>")
             
             live_devices[ip] = {
